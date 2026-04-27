@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from PIL import Image, ImageTk
 import fitz
 
@@ -71,33 +71,33 @@ class PDFViewer(ttk.Frame):
         zoom = self.main_win.zoom
         page_num = self.main_win.current_page
         
-        # 드래그가 짧으면 단순 클릭
         is_click = abs(end_x - self.start_x) < 5 and abs(end_y - self.start_y) < 5
         
         if is_click:
             if self.rect_id: self.canvas.delete(self.rect_id)
             if not engine or not engine.doc: return
             
-            # 캔버스 좌표 -> PDF 실좌표
             pt_x = (end_x - 20) / zoom
             pt_y = (end_y - 20) / zoom
             pt = fitz.Point(pt_x, pt_y)
             
-            # 1. 주석(스티커 메모) 클릭 여부 확인
             annot_text = engine.get_annotation_at(page_num, pt)
             if annot_text:
                 self.show_sticky_note(annot_text)
                 return
                 
-            # 2. 편집 모드 ON일 경우 텍스트 클릭 확인
             if getattr(self.main_win, "edit_mode", False):
-                block_info = engine.get_text_block_at(page_num, pt)
-                if block_info:
-                    rect, text = block_info
-                    self.prompt_edit_text(page_num, rect, text)
+                elem = engine.get_element_at(page_num, pt)
+                if elem:
+                    elem_type, rect, data = elem
+                    if elem_type == "text":
+                        self.prompt_edit_text(page_num, rect, data)
+                    elif elem_type == "image":
+                        self.prompt_edit_image(page_num, rect)
+                    elif elem_type == "drawing":
+                        self.prompt_delete_drawing(page_num, rect)
             return
 
-        # 일반 드래그 = 텍스트 강제 추출
         if not engine or not engine.doc:
             if self.rect_id: self.canvas.delete(self.rect_id)
             return
@@ -116,22 +116,22 @@ class PDFViewer(ttk.Frame):
             if text:
                 self.clipboard_clear()
                 self.clipboard_append(text)
-                messagebox.showinfo("텍스트 드래그 추출 완료", f"지정한 영역의 텍스트가 클립보드에 복사되었다 이기:\n\n{text}")
+                messagebox.showinfo("텍스트 추출 완료", f"클립보드에 복사되었다 이기:\n\n{text}")
         except Exception as e:
-            print("Text extraction error:", e)
+            pass
             
         if self.rect_id: self.canvas.delete(self.rect_id)
 
     def show_sticky_note(self, text):
         top = tk.Toplevel(self)
-        top.title("스티커 메모 (Annotation)")
+        top.title("스티커 메모")
         top.geometry("300x200")
         top.configure(bg="#ffffcc")
         lbl = tk.Label(top, text="📝 [ 주석 내용 ]", bg="#ffffcc", font=("Malgun Gothic", 12, "bold"))
         lbl.pack(pady=10)
         txt = tk.Text(top, bg="#ffffcc", wrap=tk.WORD, font=("Malgun Gothic", 10), relief=tk.FLAT)
         txt.insert("1.0", text)
-        txt.config(state=tk.DISABLED) # 읽기 전용
+        txt.config(state=tk.DISABLED)
         txt.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
         
     def prompt_edit_text(self, page_num, rect, old_text):
@@ -153,8 +153,27 @@ class PDFViewer(ttk.Frame):
                 self.main_win.render_current_page()
             top.destroy()
             
-        btn = ttk.Button(top, text="적용 및 원본 분쇄 (Redaction)", command=apply_edit)
+        btn = ttk.Button(top, text="적용 및 원본 텍스트 분쇄", command=apply_edit)
         btn.pack(pady=15)
+
+    def prompt_edit_image(self, page_num, rect):
+        ans = messagebox.askyesnocancel("이미지 오브젝트 편집", "이 이미지를 완전히 삭제(Yes)하겠노?\n아니면 다른 이미지 파일로 교체(No)하겠노?\n취소하려면 Cancel.")
+        if ans is True:
+            self.main_win.engine.delete_area(page_num, rect)
+            self.main_win.render_current_page()
+            messagebox.showinfo("성공", "유물론적 이미지를 완벽하게 소각(Redact)했다!")
+        elif ans is False:
+            path = filedialog.askopenfilename(filetypes=[("Image files", "*.png;*.jpg;*.jpeg")])
+            if path:
+                self.main_win.engine.replace_image(page_num, rect, path)
+                self.main_win.render_current_page()
+                messagebox.showinfo("성공", "진리의 새 이미지로 덮어씌웠다!")
+
+    def prompt_delete_drawing(self, page_num, rect):
+        if messagebox.askyesno("도형(벡터) 편집", "선택한 벡터 도형을 흔적도 없이 삭제하겠노?"):
+            self.main_win.engine.delete_area(page_num, rect)
+            self.main_win.render_current_page()
+            messagebox.showinfo("성공", "도형 분쇄 완료!")
 
     def show_pixmap(self, pix):
         if not pix:

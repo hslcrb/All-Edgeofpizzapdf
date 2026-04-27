@@ -77,7 +77,7 @@ class MainWindow(tk.Tk):
     def toggle_edit_mode(self):
         self.edit_mode = self.edit_mode_var.get()
         if self.edit_mode:
-            messagebox.showinfo("모드 활성화", "어도비 애크로뱃 빙의 모드 ON!\n이제 뷰어에서 PDF의 기존 텍스트 위를 '클릭'하면 해당 블록을 날려버리고 내용을 수정할 수 있다 이기.")
+            messagebox.showinfo("모드 활성화", "어도비 애크로뱃 빙의 모드 ON!\n이제 텍스트, 이미지, 도형 등 어떤 오브젝트든 '클릭'하면 완전히 삭제(Redaction)하거나 교체할 수 있다 이기.")
 
     def open_pdf(self):
         path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
