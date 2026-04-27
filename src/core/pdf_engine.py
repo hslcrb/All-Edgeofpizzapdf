@@ -26,11 +26,41 @@ class PDFEngine:
         pix = page.get_pixmap(matrix=mat)
         return pix
 
-    def add_text_annotation(self, page_num, text, point=(50, 50)):
+    def add_sticky_note(self, page_num, text, point=(50, 50)):
         if not self.doc: return
         page = self.doc[page_num]
         annot = page.add_text_annot(point, text)
+        annot.set_colors(stroke=(1, 0.8, 0)) # 노란색 계열
+        annot.set_info(title="AllEdgeOfPizza", content=text)
         annot.update()
+
+    def get_annotation_at(self, page_num, pt):
+        if not self.doc: return None
+        page = self.doc[page_num]
+        for annot in page.annots():
+            # 클릭 좌표가 아이콘 범위 내에 있는지 확인
+            if annot.rect.contains(pt):
+                return annot.info.get("content", "")
+        return None
+
+    def get_text_block_at(self, page_num, pt):
+        if not self.doc: return None
+        page = self.doc[page_num]
+        blocks = page.get_text("blocks")
+        for b in blocks:
+            rect = fitz.Rect(b[:4])
+            if rect.contains(pt) and b[6] == 0: # 0번 타입: 일반 텍스트
+                return rect, b[4]
+        return None
+
+    def replace_text(self, page_num, rect, new_text):
+        if not self.doc: return
+        page = self.doc[page_num]
+        # 원본 텍스트 분쇄 (Redaction)
+        page.add_redact_annot(rect, fill=(1, 1, 1)) # 배경색(흰색)으로 덮음
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+        # 새 텍스트 우겨넣기
+        page.insert_textbox(rect, new_text, fontname="cjk", fontsize=11, color=(0,0,0), align=0)
 
     def add_signature_text(self, page_num, name):
         if not self.doc: return
@@ -40,7 +70,6 @@ class PDFEngine:
 
     def resave_remove_pdfa(self, out_path):
         if not self.doc: return
-        # garbage=4, deflate=True 를 주면 최적화되면서 PDF/A 메타데이터 등 부가 제한 락이 기본 해제됨
         self.doc.save(out_path, garbage=4, deflate=True)
 
     def create_blank(self):

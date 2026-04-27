@@ -23,23 +23,19 @@ class PDFViewer(ttk.Frame):
         self.image_id = None
         self.current_image = None
         
-        # 텍스트 선택(드래그) 영역 변수
         self.start_x = 0
         self.start_y = 0
         self.rect_id = None
         
-        # 캔버스 이벤트 바인딩 (텍스트 추출용 드래그)
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_press)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_release)
         
-        # 캔버스 위에서 마우스 휠 작동
         self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
         self.canvas.bind("<Button-4>", self.on_mouse_wheel)
         self.canvas.bind("<Button-5>", self.on_mouse_wheel)
 
     def on_mouse_wheel(self, event):
-        # Ctrl 눌렀을 때 확대/축소 (Windows: state 4/8, macOS/Linux는 다를 수 있으므로 폭넓게 잡음)
         if event.state & 0x0004 or event.state & 0x0008:
             if event.delta > 0 or event.num == 4:
                 self.main_win.zoom_in()
@@ -47,7 +43,6 @@ class PDFViewer(ttk.Frame):
                 self.main_win.zoom_out()
             return "break"
         else:
-            # 일반 휠 스크롤
             if event.delta:
                 self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
             elif event.num == 4:
@@ -60,7 +55,6 @@ class PDFViewer(ttk.Frame):
         self.start_y = self.canvas.canvasy(event.y)
         if self.rect_id:
             self.canvas.delete(self.rect_id)
-        # 선택 영역 박스 그리기
         self.rect_id = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline='#00ff00', width=2, dash=(4,4), tags="selection")
 
     def on_mouse_drag(self, event):
@@ -73,20 +67,41 @@ class PDFViewer(ttk.Frame):
         end_x = self.canvas.canvasx(event.x)
         end_y = self.canvas.canvasy(event.y)
         
-        # 드래그가 너무 짧으면 그냥 단순 클릭으로 간주
-        if abs(end_x - self.start_x) < 5 and abs(end_y - self.start_y) < 5:
-            if self.rect_id: self.canvas.delete(self.rect_id)
-            return
-            
         engine = self.main_win.engine
+        zoom = self.main_win.zoom
+        page_num = self.main_win.current_page
+        
+        # 드래그가 짧으면 단순 클릭
+        is_click = abs(end_x - self.start_x) < 5 and abs(end_y - self.start_y) < 5
+        
+        if is_click:
+            if self.rect_id: self.canvas.delete(self.rect_id)
+            if not engine or not engine.doc: return
+            
+            # 캔버스 좌표 -> PDF 실좌표
+            pt_x = (end_x - 20) / zoom
+            pt_y = (end_y - 20) / zoom
+            pt = fitz.Point(pt_x, pt_y)
+            
+            # 1. 주석(스티커 메모) 클릭 여부 확인
+            annot_text = engine.get_annotation_at(page_num, pt)
+            if annot_text:
+                self.show_sticky_note(annot_text)
+                return
+                
+            # 2. 편집 모드 ON일 경우 텍스트 클릭 확인
+            if getattr(self.main_win, "edit_mode", False):
+                block_info = engine.get_text_block_at(page_num, pt)
+                if block_info:
+                    rect, text = block_info
+                    self.prompt_edit_text(page_num, rect, text)
+            return
+
+        # 일반 드래그 = 텍스트 강제 추출
         if not engine or not engine.doc:
             if self.rect_id: self.canvas.delete(self.rect_id)
             return
             
-        zoom = self.main_win.zoom
-        page_num = self.main_win.current_page
-        
-        # 캔버스 20px 패딩 감안 및 줌 비율 계산 (화면 좌표 -> 실제 PDF 좌표)
         x0 = (min(self.start_x, end_x) - 20) / zoom
         y0 = (min(self.start_y, end_y) - 20) / zoom
         x1 = (max(self.start_x, end_x) - 20) / zoom
@@ -96,7 +111,6 @@ class PDFViewer(ttk.Frame):
         
         try:
             page = engine.doc[page_num]
-            # 지정 영역 텍스트 강제 추출 (극한의 편의성)
             text = page.get_text("text", clip=rect).strip()
             
             if text:
@@ -106,8 +120,41 @@ class PDFViewer(ttk.Frame):
         except Exception as e:
             print("Text extraction error:", e)
             
-        # 선택 후 초록색 박스 지우기
         if self.rect_id: self.canvas.delete(self.rect_id)
+
+    def show_sticky_note(self, text):
+        top = tk.Toplevel(self)
+        top.title("스티커 메모 (Annotation)")
+        top.geometry("300x200")
+        top.configure(bg="#ffffcc")
+        lbl = tk.Label(top, text="📝 [ 주석 내용 ]", bg="#ffffcc", font=("Malgun Gothic", 12, "bold"))
+        lbl.pack(pady=10)
+        txt = tk.Text(top, bg="#ffffcc", wrap=tk.WORD, font=("Malgun Gothic", 10), relief=tk.FLAT)
+        txt.insert("1.0", text)
+        txt.config(state=tk.DISABLED) # 읽기 전용
+        txt.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
+        
+    def prompt_edit_text(self, page_num, rect, old_text):
+        top = tk.Toplevel(self)
+        top.title("직접 텍스트 편집 (어도비 씹어먹기 모드)")
+        top.geometry("450x350")
+        
+        lbl = tk.Label(top, text="기존 텍스트를 파괴하고 새 진리를 덮어씌운다:", font=("Malgun Gothic", 11, "bold"))
+        lbl.pack(pady=10)
+        
+        txt = tk.Text(top, wrap=tk.WORD, font=("Malgun Gothic", 10), height=10)
+        txt.insert("1.0", old_text)
+        txt.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
+        
+        def apply_edit():
+            new_text = txt.get("1.0", tk.END).strip()
+            if new_text:
+                self.main_win.engine.replace_text(page_num, rect, new_text)
+                self.main_win.render_current_page()
+            top.destroy()
+            
+        btn = ttk.Button(top, text="적용 및 원본 분쇄 (Redaction)", command=apply_edit)
+        btn.pack(pady=15)
 
     def show_pixmap(self, pix):
         if not pix:
@@ -123,5 +170,4 @@ class PDFViewer(ttk.Frame):
         else:
             self.image_id = self.canvas.create_image(20, 20, anchor=tk.NW, image=self.current_image)
         
-        # 스크롤 영역을 이미지 크기에 맞게 확실하게 업데이트
         self.canvas.config(scrollregion=(0, 0, pix.width + 40, pix.height + 40))

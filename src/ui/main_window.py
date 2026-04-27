@@ -19,6 +19,7 @@ class MainWindow(tk.Tk):
         self.engine = PDFEngine()
         self.current_page = 0
         self.zoom = 1.0
+        self.edit_mode = False
         
         self.paned_window = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         self.paned_window.pack(fill=tk.BOTH, expand=True)
@@ -31,11 +32,9 @@ class MainWindow(tk.Tk):
         
         self.build_sidebar()
         
-        # 키보드 바인딩 (줌 인/아웃 - 컨트롤 + / - / =)
         self.bind("<Control-plus>", lambda e: self.zoom_in())
         self.bind("<Control-equal>", lambda e: self.zoom_in())
         self.bind("<Control-minus>", lambda e: self.zoom_out())
-        # 전역 마우스 휠 바인딩도 캔버스로 포워딩
         self.bind("<Control-MouseWheel>", self.viewer.on_mouse_wheel)
 
     def build_sidebar(self):
@@ -47,7 +46,6 @@ class MainWindow(tk.Tk):
         
         ttk.Separator(self.sidebar, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
         
-        # 뷰어 컨트롤
         ttk.Label(self.sidebar, text="[ 네비게이션 ]", font=('Malgun Gothic', 10, 'bold')).pack()
         nav_frame = ttk.Frame(self.sidebar)
         nav_frame.pack(fill=tk.X, padx=15, pady=5)
@@ -61,18 +59,25 @@ class MainWindow(tk.Tk):
         
         ttk.Separator(self.sidebar, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
         
-        # 편집 및 주석
         ttk.Label(self.sidebar, text="[ 편 집 / 주 석 ]", font=('Malgun Gothic', 10, 'bold')).pack()
-        ttk.Button(self.sidebar, text="📝 메모 주석 (Annotation)", command=self.add_comment).pack(fill=tk.X, padx=15, pady=5)
+        
+        self.edit_mode_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(self.sidebar, text="✏️ 직접 텍스트 편집 모드 (ON/OFF)", variable=self.edit_mode_var, command=self.toggle_edit_mode).pack(fill=tk.X, padx=15, pady=5)
+        
+        ttk.Button(self.sidebar, text="📝 메모 주석 (스티커 추가)", command=self.add_comment).pack(fill=tk.X, padx=15, pady=5)
         ttk.Button(self.sidebar, text="🖋 전자서명 (인증 마크 삽입)", command=self.add_signature).pack(fill=tk.X, padx=15, pady=5)
         
         ttk.Separator(self.sidebar, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
         
-        # PDF/A 및 보안 해제
         ttk.Label(self.sidebar, text="[ 보 안 / 최 적 화 ]", font=('Malgun Gothic', 10, 'bold')).pack()
         ttk.Button(self.sidebar, text="🔓 PDF/A 락 해제 (강제 재저장)", command=self.remove_pdfa).pack(fill=tk.X, padx=15, pady=5)
         ttk.Button(self.sidebar, text="🔠 내장 폰트 강제 적출", command=self.do_extract_fonts).pack(fill=tk.X, padx=15, pady=5)
         ttk.Button(self.sidebar, text="💣 암호 무차별대입 크랙", command=self.do_bruteforce).pack(fill=tk.X, padx=15, pady=5)
+
+    def toggle_edit_mode(self):
+        self.edit_mode = self.edit_mode_var.get()
+        if self.edit_mode:
+            messagebox.showinfo("모드 활성화", "어도비 애크로뱃 빙의 모드 ON!\n이제 뷰어에서 PDF의 기존 텍스트 위를 '클릭'하면 해당 블록을 날려버리고 내용을 수정할 수 있다 이기.")
 
     def open_pdf(self):
         path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
@@ -120,10 +125,12 @@ class MainWindow(tk.Tk):
         
     def add_comment(self):
         if not self.engine.doc: return
-        text = simpledialog.askstring("주석 추가", "주석 내용을 입력해라 이기:")
+        text = simpledialog.askstring("주석 추가", "스티커 메모 내용을 입력해라 이기:")
         if text:
-            self.engine.add_text_annotation(self.current_page, text)
+            # 기본적으로 좌측 상단 여백에 추가되도록 설정 (차후 마우스 좌표로 확장 가능)
+            self.engine.add_sticky_note(self.current_page, text, point=(100, 100))
             self.render_current_page()
+            messagebox.showinfo("알림", "노란색 스티커 메모가 추가됨! 뷰어에서 아이콘을 클릭해봐라.")
             
     def add_signature(self):
         if not self.engine.doc: return
