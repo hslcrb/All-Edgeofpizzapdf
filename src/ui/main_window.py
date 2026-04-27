@@ -23,15 +23,21 @@ class MainWindow(tk.Tk):
         self.paned_window = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         self.paned_window.pack(fill=tk.BOTH, expand=True)
         
-        self.viewer = PDFViewer(self.paned_window)
+        self.viewer = PDFViewer(self.paned_window, self)
         self.sidebar = ttk.Frame(self.paned_window, width=300, relief=tk.SUNKEN)
         
-        # 패널 비율 설정 (뷰어 : 사이드바 = 4 : 1)
         self.paned_window.add(self.viewer, weight=4)
         self.paned_window.add(self.sidebar, weight=1)
         
         self.build_sidebar()
         
+        # 키보드 바인딩 (줌 인/아웃 - 컨트롤 + / - / =)
+        self.bind("<Control-plus>", lambda e: self.zoom_in())
+        self.bind("<Control-equal>", lambda e: self.zoom_in())
+        self.bind("<Control-minus>", lambda e: self.zoom_out())
+        # 전역 마우스 휠 바인딩도 캔버스로 포워딩
+        self.bind("<Control-MouseWheel>", self.viewer.on_mouse_wheel)
+
     def build_sidebar(self):
         ttk.Label(self.sidebar, text="🔥 PDF Command Center", font=('Malgun Gothic', 14, 'bold')).pack(pady=15)
         
